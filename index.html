@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eureka — Leitor Acessível v7</title>
+<style>
+  :focus-visible { outline: 3px solid #075fcc; outline-offset: 3px; }
+  .pular-link {
+    position: absolute; left: -10000px; top: 8px;
+    background: #fff; color: #000; padding: 12px; z-index: 1000;
+  }
+  .pular-link:focus { left: 8px; }
+  .instrucoes { border: 2px solid #555; border-radius: 8px; padding: 12px; margin: 16px 0; }
+  body {
+    font-family: sans-serif;
+    max-width: 720px;
+    margin: 25px auto;
+    padding: 16px;
+    line-height: 1.6;
+  }
+  button, select, input {
+    font-size: 18px;
+    padding: 12px;
+    margin: 5px 2px;
+  }
+  button { cursor: pointer; }
+  #texto {
+    border: 1px solid #888;
+    border-radius: 8px;
+    padding: 16px;
+    min-height: 120px;
+    white-space: pre-wrap;
+  }
+  #status { font-weight: bold; }
+</style>
+</head>
+<body>
+<a class="pular-link" href="#conteudoPrincipal">Pular para os controles de leitura</a>
+
+<header>
+  <h1>Eureka</h1>
+  <p><strong>Versão 7 — seleção com confirmação por voz</strong></p>
+  <p>Leitor digital acessível</p>
+  <div class="instrucoes" aria-labelledby="tituloComecar">
+    <h2 id="tituloComecar">Comece por aqui</h2>
+    <p>Se você está usando o Eureka pela primeira vez, ouça as instruções iniciais. A fala só começa quando você aciona um botão.</p>
+    <button id="instrucoesIniciais" type="button">Ouvir instruções iniciais</button>
+  </div>
+</header>
+
+<main id="conteudoPrincipal">
+
+<section aria-labelledby="tituloAbrirDocumento">
+<h2 id="tituloMenuAcessivel">Menu principal acessível</h2>
+<p>Use o menu falado para continuar a última leitura ou consultar sua biblioteca.</p>
+<div>
+  <button id="menuAcessivel" type="button">Ouvir menu principal</button>
+  <button id="continuarUltima" type="button">Continuar última leitura</button>
+</div>
+
+<h2 id="tituloAbrirDocumento">Abrir documento</h2>
+<label for="categoriaDocumento">Categoria do documento:</label><br>
+<select id="categoriaDocumento">
+  <option value="Geral">Geral</option>
+  <option value="Livros">Livros</option>
+  <option value="Estudos">Estudos</option>
+  <option value="Trabalho">Trabalho</option>
+  <option value="Pessoal">Pessoal</option>
+</select>
+<br><br>
+<label for="arquivo">Escolha um livro ou documento de texto no formato TXT:</label><br>
+<input type="file" id="arquivo" accept=".txt,text/plain">
+
+</section>
+
+<p id="status" role="status" aria-live="polite" aria-atomic="true">
+Pronto para ler.
+</p>
+
+<label for="voz">Voz:</label><br>
+<select id="voz" aria-label="Selecionar voz"></select>
+
+<div>
+  <button id="ler">Ler / continuar</button>
+  <button id="pausar">Pausar</button>
+  <button id="parar">Parar</button>
+</div>
+
+<div>
+  <button id="anterior">Trecho anterior</button>
+  <button id="proximo">Próximo trecho</button>
+  <button id="repetir">Repetir frase</button>
+  <button id="inicio">Início do documento</button>
+</div>
+
+<div>
+  <button id="comandoVoz">Ativar comando por voz</button>
+  <p>Pressione o botão para falar um comando. Diga “ajuda” para ouvir a lista de comandos ou “como começar” para ouvir as instruções iniciais.</p>
+</div>
+
+<section id="biblioteca" aria-labelledby="tituloBiblioteca">
+  <h2 id="tituloBiblioteca">Minha biblioteca</h2>
+  <p>Documentos salvos neste navegador</p>
+  <button id="ouvirBiblioteca" type="button">Ouvir biblioteca</button>
+  <button id="ouvirCategorias" type="button">Ouvir categorias</button>
+  <button id="confirmarDocumento" type="button" disabled>Confirmar documento selecionado</button>
+  <button id="cancelarDocumento" type="button" disabled>Cancelar seleção</button>
+  <p id="selecaoPendente" role="status" aria-live="polite">Nenhum documento aguardando confirmação.</p>
+  <p>Documentos organizados por categoria. Documentos antigos sem categoria aparecem em Geral.</p>
+  <ul id="listaBiblioteca">
+    <li>Nenhum documento salvo ainda.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="tituloTextoAtual">
+<h2 id="tituloTextoAtual">Texto atual</h2>
+<div id="texto" tabindex="0">
+Bem-vindo ao Eureka. Carregue um arquivo TXT para começar.
+</div>
+</section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+
+const exemplo =
+`Bem-vindo ao Projeto Eureka.
+
+Este é o nosso leitor digital acessível.
+
+O objetivo é permitir que pessoas cegas escolham documentos,
+ouçam a leitura e retomem o conteúdo com autonomia.
+
+O Eureka está sendo desenvolvido passo a passo.`;
+
+let nomeLivro = "exemplo";
+let conteudo = exemplo;
+let trechos = [];
+let indice = 0;
+let geracao = 0;
+let pausadoPeloUsuario = false;
+let indiceFrase = 0;
+let frasesAtuais = [];
+let leituraAtiva = false;
+let documentoPendente = null;
+let listaSelecaoAtual = { tipo: "biblioteca", categoria: null, documentos: [] };
+
+function dividirTexto(texto) {
+  const frases = texto.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [texto];
+  const resultado = [];
+  let bloco = "";
+
+  for (const frase of frases) {
+    if ((bloco + " " + frase).length > 450 && bloco) {
+      resultado.push(bloco.trim());
+      bloco = "";
+    }
+    bloco += " " + frase;
+  }
+
+  if (bloco.trim()) resultado.push(bloco.trim());
+  return resultado;
+}
+
+function dividirEmFrases(texto) {
+  return texto.match(/[^.!?]+(?:[.!?]+|$)/g)
+    ?.map(frase => frase.trim())
+    .filter(Boolean) || [];
+}
+
+function salvar() {
+  try {
+    localStorage.setItem(
+      "eureka:" + nomeLivro,
+      JSON.stringify({ indice, indiceFrase })
+    );
+  } catch (e) {
+    $("status").textContent =
+      "Não foi possível salvar a posição neste navegador.";
+  }
+}
+
+function salvarNaBiblioteca(nome, texto, categoria = "Geral") {
+  const chave = "eureka:biblioteca";
+  let biblioteca = [];
+
+  try {
+    biblioteca = JSON.parse(localStorage.getItem(chave) || "[]");
+    if (!Array.isArray(biblioteca)) biblioteca = [];
+  } catch (e) {
+    biblioteca = [];
+  }
+
+  const documento = {
+    nome: nome,
+    texto: texto,
+    categoria: categoria || "Geral",
+    atualizadoEm: new Date().toISOString()
+  };
+
+  const posicao = biblioteca.findIndex(item => item.nome === nome);
+
+  if (posicao >= 0) {
+    if (!categoria || categoria === "Geral") {
+      documento.categoria = biblioteca[posicao].categoria || "Geral";
+    }
+    biblioteca[posicao] = documento;
+  } else {
+    biblioteca.push(documento);
+  }
+
+  try {
+    localStorage.setItem(chave, JSON.stringify(biblioteca));
+  } catch (e) {
+    $("status").textContent =
+      "Não foi possível salvar o documento neste navegador.";
+  }
+}
+
+
+function registrarUltimoDocumento(documento) {
+  if (!documento || typeof documento.nome !== "string") return;
+  try {
+    localStorage.setItem("eureka:ultimaLeitura", documento.nome);
+  } catch (e) {
+    // A biblioteca ainda pode ser usada mesmo se o navegador bloquear o armazenamento.
+  }
+}
+
+function continuarUltimaLeitura() {
+  let ultimoNome = "";
+  try {
+    ultimoNome = localStorage.getItem("eureka:ultimaLeitura") || "";
+  } catch (e) {
+    ultimoNome = "";
+  }
+
+  const documentos = obterBiblioteca();
+  let documento = documentos.find(item => item.nome === ultimoNome);
+
+  if (!documento && nomeLivro && conteudo) {
+    documento = { nome: nomeLivro, texto: conteudo };
+  }
+
+  if (!documento) {
+    confirmarPorVoz(
+      "Ainda não há uma leitura anterior salva. Diga ouvir biblioteca para consultar documentos, ou abra um arquivo TXT."
+    );
+    $("status").textContent = "Nenhuma leitura anterior encontrada.";
+    return;
+  }
+
+  abrirDocumentoSalvo(documento);
+  confirmarPorVoz(
+    "Retomando o documento " + documento.nome +
+    ". Sua posição anterior foi recuperada. Diga continuar leitura para ouvir o texto."
+  );
+}
+
+function ouvirMenuAcessivel() {
+  const documentos = obterBiblioteca();
+  const mensagem = documentos.length
+    ? "Menu principal do Eureka. Você pode dizer continuar última leitura, ouvir biblioteca, abrir documento seguido do número, ou ajuda. A biblioteca tem " +
+      documentos.length + (documentos.length === 1 ? " documento." : " documentos.")
+    : "Menu principal do Eureka. Sua biblioteca ainda está vazia. Você pode abrir um arquivo TXT, ou dizer ajuda para ouvir os comandos disponíveis.";
+  confirmarPorVoz(mensagem);
+  $("status").textContent = "Menu principal anunciado.";
+}
+
+function abrirDocumentoSalvo(documento) {
+  if (!documento || typeof documento.texto !== "string") {
+    $("status").textContent = "Não foi possível abrir esse documento.";
+    return;
+  }
+
+  leituraAtiva = false;
+  pausadoPeloUsuario = false;
+  interromper("Abrindo documento.");
+
+  nomeLivro = documento.nome;
+  conteudo = documento.texto;
+  registrarUltimoDocumento(documento);
+  trechos = dividirTexto(conteudo);
+
+  if (!trechos.length) {
+    $("status").textContent = "O documento está vazio.";
+    return;
+  }
+
+  let salvo = {};
+
+  try {
+    salvo = JSON.parse(localStorage.getItem("eureka:" + nomeLivro) || "{}");
+  } catch (e) {
+    salvo = {};
+  }
+
+  indice = Number.isInteger(salvo.indice) ? salvo.indice : 0;
+  indice = Math.max(0, Math.min(indice, trechos.length - 1));
+
+  frasesAtuais = dividirEmFrases(trechos[indice] || "");
+  indiceFrase = Number.isInteger(salvo.indiceFrase) ? salvo.indiceFrase : 0;
+  indiceFrase = Math.max(
+    0,
+    Math.min(indiceFrase, Math.max(0, frasesAtuais.length - 1))
+  );
+
+  mostrarTrecho();
+  $("status").textContent = "Documento aberto. Posição de leitura recuperada.";
+}
+
+function abrirDocumentoPorNumero(numero) {
+  const biblioteca = obterBiblioteca();
+  const lista = listaSelecaoAtual.documentos.length ? listaSelecaoAtual.documentos : biblioteca;
+
+  if (!Number.isInteger(numero) || numero < 1 || numero > lista.length) {
+    const contexto = listaSelecaoAtual.tipo === "categoria"
+      ? " na categoria " + listaSelecaoAtual.categoria
+      : " na biblioteca";
+    confirmarPorVoz(
+      "Não existe documento número " + numero + contexto + ". " +
+      (listaSelecaoAtual.tipo === "categoria"
+        ? "Diga ouvir categoria " + listaSelecaoAtual.categoria + " para escutar a lista novamente, ou ouvir biblioteca para consultar todos os documentos."
+        : "Diga ouvir biblioteca para consultar os documentos disponíveis.")
+    );
+    $("status").textContent = "Número de documento inválido para a lista atual.";
+    return;
+  }
+
+  const documento = lista[numero - 1];
+  const categoria = documento.categoria || "Geral";
+  const repetidos = biblioteca.filter(d => d.nome.trim().toLowerCase() === documento.nome.trim().toLowerCase()).length;
+  const detalheDuplicado = repetidos > 1
+    ? " Há documentos com esse mesmo nome; a categoria é " + categoria + "."
+    : " Categoria " + categoria + ".";
+  documentoPendente = { documento, numero, categoria, tipoLista: listaSelecaoAtual.tipo };
+  $("confirmarDocumento").disabled = false;
+  $("cancelarDocumento").disabled = false;
+  $("selecaoPendente").textContent =
+    "Aguardando confirmação: documento " + numero + ", " + documento.nome + ", categoria " + categoria + ".";
+  $("status").textContent = "Confirme ou cancele a seleção do documento.";
+
+  confirmarPorVoz(
+    "Você selecionou o documento " + numero + ": " + documento.nome + "." + detalheDuplicado +
+    " Ainda não foi aberto. Diga confirmar seleção para abrir, ou cancelar seleção para voltar."
+  );
+}
+
+function confirmarSelecaoDocumento() {
+  if (!documentoPendente) {
+    confirmarPorVoz("Não há documento aguardando confirmação. Consulte a biblioteca e selecione um documento.");
+    return;
+  }
+  const selecionado = documentoPendente;
+  documentoPendente = null;
+  $("confirmarDocumento").disabled = true;
+  $("cancelarDocumento").disabled = true;
+  $("selecaoPendente").textContent = "Nenhum documento aguardando confirmação.";
+  abrirDocumentoSalvo(selecionado.documento);
+  confirmarPorVoz(
+    "Documento confirmado e aberto: " + selecionado.documento.nome +
+    ". A posição anterior foi recuperada. Diga continuar leitura para começar."
+  );
+}
+
+function cancelarSelecaoDocumento() {
+  if (!documentoPendente) {
+    confirmarPorVoz("Não há seleção pendente para cancelar.");
+    return;
+  }
+  const nome = documentoPendente.documento.nome;
+  documentoPendente = null;
+  $("confirmarDocumento").disabled = true;
+  $("cancelarDocumento").disabled = true;
+  $("selecaoPendente").textContent = "Nenhum documento aguardando confirmação.";
+  $("status").textContent = "Seleção cancelada.";
+  confirmarPorVoz("Seleção do documento " + nome + " cancelada. Nenhum documento foi aberto.");
+}
+
+$("confirmarDocumento").onclick = confirmarSelecaoDocumento;
+$("cancelarDocumento").onclick = cancelarSelecaoDocumento;
+
+function numeroFaladoParaInteiro(texto) {
+  const numeros = {
+    "um": 1, "uma": 1, "primeiro": 1, "primeira": 1,
+    "dois": 2, "duas": 2, "segundo": 2, "segunda": 2,
+    "tres": 3, "terceiro": 3, "terceira": 3,
+    "quatro": 4, "quarto": 4, "quarta": 4,
+    "cinco": 5, "quinto": 5, "quinta": 5,
+    "seis": 6, "sexto": 6, "sexta": 6,
+    "sete": 7, "setimo": 7, "setima": 7,
+    "oito": 8, "oitavo": 8, "oitava": 8,
+    "nove": 9, "nono": 9, "nona": 9,
+    "dez": 10, "decimo": 10, "decima": 10
+  };
+
+  const textoLimpo = texto.trim().toLowerCase()
+    .replace(/^numero\s+/, "");
+
+  if (/^\d+$/.test(textoLimpo)) return Number(textoLimpo);
+  return numeros[textoLimpo] || null;
+}
+
+function obterBiblioteca() {
+  try {
+    const documentos = JSON.parse(localStorage.getItem("eureka:biblioteca") || "[]");
+    return Array.isArray(documentos) ? documentos : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function atualizarBiblioteca() {
+  const lista = $("listaBiblioteca");
+  const documentos = obterBiblioteca();
+  lista.replaceChildren();
+
+  if (!documentos.length) {
+    const item = document.createElement("li");
+    item.textContent = "Nenhum documento salvo ainda.";
+    lista.appendChild(item);
+    return;
+  }
+
+  const categorias = [...new Set(documentos.map(d => d.categoria || "Geral"))]
+    .sort((a, b) => a.localeCompare(b, "pt-BR"));
+
+  categorias.forEach(categoria => {
+    const grupo = document.createElement("li");
+    const titulo = document.createElement("strong");
+    titulo.textContent = categoria + ". ";
+    grupo.appendChild(titulo);
+
+    const sublista = document.createElement("ul");
+    documentos.forEach((documento, i) => {
+      if ((documento.categoria || "Geral") !== categoria) return;
+      const item = document.createElement("li");
+      const botao = document.createElement("button");
+      botao.type = "button";
+      botao.textContent = "Documento " + (i + 1) + ": " + documento.nome;
+      botao.onclick = () => {
+        const documentosAtuais = obterBiblioteca();
+        listaSelecaoAtual = { tipo: "biblioteca", categoria: null, documentos: documentosAtuais };
+        const numeroDocumento = i + 1;
+        abrirDocumentoPorNumero(numeroDocumento);
+      };
+      item.appendChild(botao);
+      sublista.appendChild(item);
+    });
+    grupo.appendChild(sublista);
+    lista.appendChild(grupo);
+  });
+}
+
+function ouvirCategorias() {
+  const documentos = obterBiblioteca();
+  const categorias = [...new Set(documentos.map(d => d.categoria || "Geral"))]
+    .sort((a, b) => a.localeCompare(b, "pt-BR"));
+
+  if (!categorias.length) {
+    confirmarPorVoz("Sua biblioteca está vazia. Carregue um documento TXT e escolha uma categoria.");
+    return;
+  }
+
+  const resumo = categorias.map(categoria => {
+    const quantidade = documentos.filter(d => (d.categoria || "Geral") === categoria).length;
+    return categoria + ": " + quantidade + (quantidade === 1 ? " documento." : " documentos.");
+  });
+
+  confirmarPorVoz(
+    "Categorias da biblioteca. " + resumo.join(" ") +
+    " Para ouvir os documentos de uma categoria, diga ouvir categoria e o nome da categoria."
+  );
+  $("status").textContent = "Categorias da biblioteca anunciadas.";
+}
+
+function ouvirDocumentosDaCategoria(categoriaSolicitada) {
+  const documentos = obterBiblioteca();
+  const categoria = categoriaSolicitada.trim();
+  const encontrados = documentos
+    .filter(documento => (documento.categoria || "Geral").toLowerCase() === categoria.toLowerCase());
+
+  if (!encontrados.length) {
+    confirmarPorVoz("Não encontrei documentos na categoria " + categoria + ". Diga ouvir categorias para consultar as categorias disponíveis.");
+    return;
+  }
+
+  listaSelecaoAtual = { tipo: "categoria", categoria, documentos: encontrados };
+  const mensagens = [
+    "Categoria " + categoria + ". " + encontrados.length +
+      (encontrados.length === 1 ? " documento." : " documentos."),
+    ...encontrados.map((documento, indice) => {
+      const repetidos = encontrados.filter(d => d.nome.trim().toLowerCase() === documento.nome.trim().toLowerCase()).length;
+      return "Documento " + (indice + 1) + ": " + documento.nome +
+        (repetidos > 1 ? ", nome repetido nesta categoria" : "") + ".";
+    }),
+    "Fim da categoria " + categoria + ". Os números desta lista valem somente para esta categoria. Diga abrir documento e o número. Depois confirme a seleção para abrir."
+  ];
+
+  let posicao = 0;
+  const falarProxima = () => {
+    if (posicao >= mensagens.length) return;
+    const fala = new SpeechSynthesisUtterance(mensagens[posicao++]);
+    fala.lang = "pt-BR";
+    fala.rate = 0.9;
+    const vozes = speechSynthesis.getVoices().filter(v => v.lang.toLowerCase().startsWith("pt"));
+    const escolhida = vozes[Number($("voz").value)];
+    if (escolhida) fala.voice = escolhida;
+    fala.onend = falarProxima;
+    speechSynthesis.speak(fala);
+  };
+  speechSynthesis.cancel();
+  falarProxima();
+  $("status").textContent = "Lendo documentos da categoria " + categoria + ".";
+}
+
+function ouvirBiblioteca() {
+  const documentos = obterBiblioteca();
+  listaSelecaoAtual = { tipo: "biblioteca", categoria: null, documentos };
+
+  leituraAtiva = false;
+  pausadoPeloUsuario = false;
+  geracao++;
+  speechSynthesis.cancel();
+
+  if (!documentos.length) {
+    $("status").textContent = "A biblioteca está vazia.";
+    const fala = new SpeechSynthesisUtterance(
+      "Sua biblioteca está vazia. Abra um documento para começar."
+    );
+    fala.lang = "pt-BR";
+    speechSynthesis.speak(fala);
+    return;
+  }
+
+  const mensagens = [
+    "Sua biblioteca contém " + documentos.length +
+      (documentos.length === 1 ? " documento." : " documentos."),
+    ...documentos.map((documento, i) => {
+      const repetidos = documentos.filter(d => d.nome.trim().toLowerCase() === documento.nome.trim().toLowerCase()).length;
+      return "Documento " + (i + 1) + ": " + documento.nome + ". Categoria " + (documento.categoria || "Geral") +
+        (repetidos > 1 ? ". Este nome aparece mais de uma vez; confira o número e a categoria" : "") + ".";
+    }),
+    "Fim da biblioteca. Os números desta lista valem para a biblioteca completa. Para escolher, diga abrir documento e o número. Depois confirme a seleção para abrir."
+  ];
+
+  let posicao = 0;
+  $("status").textContent = "Lendo a lista de documentos em voz alta.";
+
+  function falarProximaMensagem() {
+    if (posicao >= mensagens.length) {
+      $("status").textContent = "Biblioteca anunciada. Diga abrir documento e o número.";
+      return;
+    }
+
+    const fala = new SpeechSynthesisUtterance(mensagens[posicao]);
+    fala.lang = "pt-BR";
+    fala.rate = 0.9;
+
+    const vozes = speechSynthesis.getVoices()
+      .filter(v => v.lang.toLowerCase().startsWith("pt"));
+    const escolhida = vozes[Number($("voz").value)];
+    if (escolhida) fala.voice = escolhida;
+
+    fala.onend = () => {
+      posicao++;
+      falarProximaMensagem();
+    };
+
+    fala.onerror = evento => {
+      if (evento.error !== "canceled" && evento.error !== "interrupted") {
+        $("status").textContent = "Não foi possível ler a biblioteca.";
+      }
+    };
+
+    speechSynthesis.speak(fala);
+  }
+
+  falarProximaMensagem();
+}
+
+$("ouvirBiblioteca").onclick = ouvirBiblioteca;
+$("ouvirCategorias").onclick = ouvirCategorias;
+$("menuAcessivel").onclick = ouvirMenuAcessivel;
+$("continuarUltima").onclick = continuarUltimaLeitura;
+
+function mostrarTrecho() {
+  if (!trechos.length) return;
+  indice = Math.max(0, Math.min(indice, trechos.length - 1));
+  $("texto").textContent = trechos[indice];
+  $("status").textContent = "Trecho " + (indice + 1) + " de " + trechos.length;
+  salvar();
+}
+
+function atualizarVozes() {
+  const seletor = $("voz");
+  const anterior = seletor.value;
+  seletor.innerHTML = "";
+
+  const vozes = speechSynthesis.getVoices()
+    .filter(v => v.lang.toLowerCase().startsWith("pt"));
+
+  if (!vozes.length) {
+    const opcao = document.createElement("option");
+    opcao.textContent = "Voz padrão do navegador";
+    opcao.value = "";
+    seletor.appendChild(opcao);
+    return;
+  }
+
+  vozes.forEach((v, i) => {
+    const opcao = document.createElement("option");
+    opcao.value = String(i);
+    opcao.textContent = v.name + " (" + v.lang + ")";
+    seletor.appendChild(opcao);
+  });
+
+  const encontrado = [...seletor.options].find(o => o.textContent === anterior);
+  if (encontrado) seletor.value = encontrado.value;
+}
+
+speechSynthesis.onvoiceschanged = atualizarVozes;
+atualizarVozes();
+
+function falar() {
+  if (!trechos.length) return;
+  pausadoPeloUsuario = false;
+  leituraAtiva = true;
+  frasesAtuais = dividirEmFrases(trechos[indice]);
+
+  if (indiceFrase >= frasesAtuais.length) indiceFrase = 0;
+  lerFraseAtual();
+}
+
+function lerFraseAtual() {
+  if (!leituraAtiva || pausadoPeloUsuario) return;
+
+  if (indice >= trechos.length) {
+    leituraAtiva = false;
+    $("status").textContent = "Fim do documento.";
+    salvar();
+    return;
+  }
+
+  frasesAtuais = dividirEmFrases(trechos[indice]);
+
+  if (!frasesAtuais.length || indiceFrase >= frasesAtuais.length) {
+    if (indice < trechos.length - 1) {
+      indice++;
+      indiceFrase = 0;
+      mostrarTrecho();
+      lerFraseAtual();
+    } else {
+      leituraAtiva = false;
+      $("status").textContent = "Fim do documento.";
+      salvar();
+    }
+    return;
+  }
+
+  const minhaGeracao = ++geracao;
+  const fala = new SpeechSynthesisUtterance(frasesAtuais[indiceFrase]);
+  fala.lang = "pt-BR";
+  fala.rate = 0.9;
+
+  const vozes = speechSynthesis.getVoices()
+    .filter(v => v.lang.toLowerCase().startsWith("pt"));
+  const escolhida = vozes[Number($("voz").value)];
+  if (escolhida) fala.voice = escolhida;
+
+  $("status").textContent = "Lendo trecho " + (indice + 1) + " de " + trechos.length;
+
+  fala.onend = () => {
+    if (minhaGeracao !== geracao || pausadoPeloUsuario || !leituraAtiva) return;
+
+    indiceFrase++;
+
+    if (indiceFrase >= frasesAtuais.length) {
+      if (indice < trechos.length - 1) {
+        indice++;
+        indiceFrase = 0;
+        mostrarTrecho();
+      } else {
+        leituraAtiva = false;
+        $("status").textContent = "Fim do documento.";
+        salvar();
+        return;
+      }
+    }
+
+    salvar();
+    lerFraseAtual();
+  };
+
+  fala.onerror = evento => {
+    if (minhaGeracao !== geracao) return;
+    if (evento.error !== "canceled" && evento.error !== "interrupted") {
+      $("status").textContent = "Erro na reprodução da voz.";
+    }
+  };
+
+  speechSynthesis.speak(fala);
+}
+
+function confirmarPorVoz(mensagem, aoTerminar) {
+  // Invalida qualquer fala anterior para impedir que callbacks antigos continuem a leitura.
+  geracao++;
+  speechSynthesis.cancel();
+  const confirmacao = new SpeechSynthesisUtterance(mensagem);
+  confirmacao.lang = "pt-BR";
+  confirmacao.rate = 0.95;
+
+  const vozes = speechSynthesis.getVoices()
+    .filter(v => v.lang.toLowerCase().startsWith("pt"));
+  const escolhida = vozes[Number($("voz").value)];
+  if (escolhida) confirmacao.voice = escolhida;
+
+  confirmacao.onend = () => {
+    if (aoTerminar) aoTerminar();
+  };
+
+  speechSynthesis.speak(confirmacao);
+}
+
+function interromper(mensagem) {
+  geracao++;
+  speechSynthesis.cancel();
+  $("status").textContent = mensagem;
+}
+
+$("ler").onclick = falar;
+
+$("pausar").onclick = () => {
+  if (!leituraAtiva || pausadoPeloUsuario) return;
+  pausadoPeloUsuario = true;
+  geracao++;
+  speechSynthesis.cancel();
+  $("status").textContent = "Leitura pausada.";
+  confirmarPorVoz("Leitura pausada.");
+};
+
+$("parar").onclick = () => {
+  leituraAtiva = false;
+  pausadoPeloUsuario = false;
+  interromper("Leitura interrompida. A posição atual foi preservada.");
+  salvar();
+  confirmarPorVoz("Leitura interrompida. A posição atual foi preservada. Para retomar, diga continuar leitura.");
+};
+
+$("proximo").onclick = () => {
+  leituraAtiva = false;
+  pausadoPeloUsuario = false;
+  interromper("Avançando.");
+  if (indice < trechos.length - 1) indice++;
+  indiceFrase = 0;
+  frasesAtuais = dividirEmFrases(trechos[indice] || "");
+  mostrarTrecho();
+};
+
+$("anterior").onclick = () => {
+  leituraAtiva = false;
+  pausadoPeloUsuario = false;
+  interromper("Voltando.");
+  if (indice > 0) indice--;
+  indiceFrase = 0;
+  frasesAtuais = dividirEmFrases(trechos[indice] || "");
+  mostrarTrecho();
+};
+
+function repetirFraseAtual() {
+  if (!trechos.length) {
+    confirmarPorVoz("Abra um documento antes de repetir a leitura.");
+    return;
+  }
+  leituraAtiva = true;
+  pausadoPeloUsuario = false;
+  interromper("Repetindo a frase atual.");
+  frasesAtuais = dividirEmFrases(trechos[indice] || "");
+  if (indiceFrase >= frasesAtuais.length) indiceFrase = Math.max(0, frasesAtuais.length - 1);
+  lerFraseAtual();
+}
+
+function irParaInicio() {
+  if (!trechos.length) {
+    confirmarPorVoz("Abra um documento antes de iniciar a leitura.");
+    return;
+  }
+  leituraAtiva = false;
+  pausadoPeloUsuario = false;
+  interromper("Voltando ao início do documento.");
+  indice = 0;
+  indiceFrase = 0;
+  frasesAtuais = dividirEmFrases(trechos[0] || "");
+  mostrarTrecho();
+  confirmarPorVoz("Início do documento. Diga continuar leitura para começar.");
+}
+
+function ouvirInstrucoesIniciais() {
+  confirmarPorVoz(
+    "Bem-vindo ao Eureka, leitor digital acessível. " +
+    "Primeiro, escolha um arquivo de texto TXT no controle abrir documento. " +
+    "O documento será salvo na biblioteca deste navegador. " +
+    "Para ouvir a leitura, pressione ler ou continuar. " +
+    "Para controlar o leitor com a voz, pressione ativar comando por voz e fale após o sinal do navegador. " +
+    "Diga ajuda para ouvir os comandos disponíveis. " +
+    "Diga menu principal para ouvir as opções de navegação. " +
+    "Diga continuar última leitura para recuperar o último documento usado. " +
+    "Diga ouvir categorias para consultar categorias, ou ouvir categoria livros, estudos, trabalho, pessoal ou geral. " +
+    "Diga ouvir biblioteca para escutar os documentos salvos. " +
+    "Ao selecionar um documento por número, confirme a seleção antes de abrir. " +
+    "Os documentos ficam salvos somente neste navegador e neste dispositivo. " +
+    "Para começar, escolha um documento."
+  );
+  $("status").textContent = "Instruções iniciais em reprodução.";
+}
+
+$("instrucoesIniciais").onclick = ouvirInstrucoesIniciais;
+
+function anunciarAjuda() {
+  confirmarPorVoz("Comandos disponíveis: ajuda; menu principal; continuar última leitura; ouvir biblioteca; ouvir categorias; ouvir categoria e o nome; abrir documento e o número da lista que acabou de ouvir; ou abrir documento dois da categoria livros; confirmar seleção; cancelar seleção; continuar leitura; pausar leitura; repetir frase; próximo trecho; trecho anterior; início do documento; e parar leitura.");
+}
+
+$("repetir").onclick = repetirFraseAtual;
+$("inicio").onclick = irParaInicio;
+
+$("arquivo").onchange = async evento => {
+  const arquivo = evento.target.files[0];
+  if (!arquivo) return;
+
+  interromper("Carregando documento.");
+  nomeLivro = arquivo.name;
+
+  try {
+    conteudo = await arquivo.text();
+    const categoriaSelecionada = $("categoriaDocumento").value || "Geral";
+    salvarNaBiblioteca(nomeLivro, conteudo, categoriaSelecionada);
+    registrarUltimoDocumento({ nome: nomeLivro, texto: conteudo, categoria: categoriaSelecionada });
+    atualizarBiblioteca();
+    trechos = dividirTexto(conteudo);
+
+    if (!trechos.length) {
+      $("status").textContent = "O arquivo está vazio.";
+      return;
+    }
+
+    try {
+      const salvo = JSON.parse(localStorage.getItem("eureka:" + nomeLivro) || "{}");
+      indice = Number.isInteger(salvo.indice) ? salvo.indice : 0;
+      indiceFrase = Number.isInteger(salvo.indiceFrase) ? salvo.indiceFrase : 0;
+    } catch (e) {
+      indice = 0;
+      indiceFrase = 0;
+    }
+
+    indice = Math.max(0, Math.min(indice, trechos.length - 1));
+    frasesAtuais = dividirEmFrases(trechos[indice] || "");
+    indiceFrase = Math.max(0, Math.min(indiceFrase, Math.max(0, frasesAtuais.length - 1)));
+    mostrarTrecho();
+    $("status").textContent = "Documento carregado. Pronto para ler.";
+  } catch (e) {
+    $("status").textContent = "Não foi possível abrir esse arquivo.";
+  }
+};
+
+trechos = dividirTexto(conteudo);
+mostrarTrecho();
+
+const ReconhecimentoVoz = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+if (!ReconhecimentoVoz) {
+  $("comandoVoz").disabled = true;
+  $("status").textContent = "Este navegador não oferece reconhecimento de voz compatível.";
+} else {
+  const reconhecimento = new ReconhecimentoVoz();
+  reconhecimento.lang = "pt-BR";
+  reconhecimento.continuous = false;
+  reconhecimento.interimResults = false;
+
+  $("comandoVoz").onclick = () => {
+    try {
+      $("status").textContent = "Estou ouvindo. Diga um comando.";
+      reconhecimento.start();
+    } catch (erro) {
+      $("status").textContent = "Não foi possível iniciar. Tente novamente.";
+    }
+  };
+
+  reconhecimento.onresult = evento => {
+    const comando = evento.results[0][0].transcript
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+
+    if (
+      comando.includes("confirmar selecao") ||
+      comando.includes("confirmar documento") ||
+      comando === "confirmar"
+    ) {
+      confirmarSelecaoDocumento();
+      return;
+    }
+
+    if (
+      comando.includes("cancelar selecao") ||
+      comando.includes("cancelar documento") ||
+      comando === "cancelar"
+    ) {
+      cancelarSelecaoDocumento();
+      return;
+    }
+
+    if (
+      comando.includes("menu principal") ||
+      comando === "menu" ||
+      comando.includes("abrir menu")
+    ) {
+      ouvirMenuAcessivel();
+      return;
+    }
+
+    if (
+      comando.includes("continuar ultima leitura") ||
+      comando.includes("retomar ultima leitura") ||
+      comando.includes("ultimo documento") ||
+      comando.includes("último documento")
+    ) {
+      continuarUltimaLeitura();
+      return;
+    }
+
+    if (
+      comando.includes("ouvir biblioteca") ||
+      comando.includes("listar documentos") ||
+      comando.includes("consultar biblioteca")
+    ) {
+      ouvirBiblioteca();
+      return;
+    }
+
+    const abrirMatch = comando.match(
+      /(?:abrir|abra|selecionar|escolher)\s+(?:o\s+)?documento\s+(.+)$/
+    );
+
+    if (abrirMatch) {
+      let especificacao = abrirMatch[1].trim();
+      const categoriaMatch = especificacao.match(/^(.+?)\s+(?:da|de)\s+categoria\s+(.+)$/);
+      if (categoriaMatch) {
+        const numeroTexto = categoriaMatch[1].trim();
+        const categoriaPedida = categoriaMatch[2].trim();
+        const biblioteca = obterBiblioteca();
+        const encontrados = biblioteca.filter(d => (d.categoria || "Geral").toLowerCase() === categoriaPedida.toLowerCase());
+        if (!encontrados.length) {
+          confirmarPorVoz("Não encontrei documentos na categoria " + categoriaPedida + ". Diga ouvir categorias para consultar as categorias disponíveis.");
+          return;
+        }
+        listaSelecaoAtual = { tipo: "categoria", categoria: categoriaPedida, documentos: encontrados };
+        especificacao = numeroTexto;
+      }
+      const numero = numeroFaladoParaInteiro(especificacao);
+
+      if (numero === null) {
+        $("status").textContent = "Não identifiquei o número do documento.";
+        confirmarPorVoz(
+          "Não identifiquei o número. Diga, por exemplo, abrir documento dois. Para uma categoria específica, diga abrir documento dois da categoria livros."
+        );
+      } else {
+        abrirDocumentoPorNumero(numero);
+      }
+      return;
+    }
+
+    if (comando.includes("ouvir categorias") || comando.includes("listar categorias")) {
+      ouvirCategorias();
+      return;
+    }
+
+    const comandoCategoria = comando.match(/(?:ouvir|listar|consultar) categoria (.+)$/);
+    if (comandoCategoria) {
+      ouvirDocumentosDaCategoria(comandoCategoria[1].trim());
+      return;
+    }
+
+    if (
+      comando.includes("instrucoes iniciais") ||
+      comando.includes("como comecar") ||
+      comando.includes("como usar o eureka")
+    ) {
+      ouvirInstrucoesIniciais();
+      return;
+    }
+
+    if (
+      comando.includes("ajuda") ||
+      comando.includes("quais comandos") ||
+      comando.includes("o que posso dizer")
+    ) {
+      anunciarAjuda();
+      return;
+    }
+
+    if (
+      comando.includes("repetir") ||
+      comando.includes("repete") ||
+      comando.includes("repetir frase") ||
+      comando.includes("repita a frase") ||
+      comando.includes("repetir a ultima frase")
+    ) {
+      repetirFraseAtual();
+      return;
+    }
+
+    if (
+      comando.includes("inicio do documento") ||
+      comando.includes("voltar ao inicio") ||
+      comando.includes("comeco do documento")
+    ) {
+      irParaInicio();
+      return;
+    }
+
+    if (comando.includes("pausar") || comando.includes("pausa a leitura")) {
+      pausadoPeloUsuario = true;
+      geracao++;
+      speechSynthesis.cancel();
+
+      confirmarPorVoz("Leitura pausada. Para retomar, diga continuar leitura.");
+
+      $("status").textContent = "Leitura pausada.";
+    } else if (
+      comando.includes("continuar") ||
+      comando.includes("retomar") ||
+      comando.includes("prosseguir") ||
+      comando.includes("ler")
+    ) {
+      pausadoPeloUsuario = false;
+      falar();
+    } else if (
+      comando.includes("proximo") ||
+      comando.includes("avancar")
+    ) {
+      leituraAtiva = false;
+      interromper("Avançando.");
+      pausadoPeloUsuario = false;
+
+      if (indice < trechos.length - 1) indice++;
+      indiceFrase = 0;
+      mostrarTrecho();
+
+      confirmarPorVoz("Próximo trecho selecionado.");
+    } else if (
+      comando.includes("anterior") ||
+      comando.includes("voltar")
+    ) {
+      leituraAtiva = false;
+      interromper("Voltando.");
+      pausadoPeloUsuario = false;
+
+      if (indice > 0) indice--;
+      indiceFrase = 0;
+      mostrarTrecho();
+
+      confirmarPorVoz("Trecho anterior selecionado.");
+    } else if (
+      comando.includes("parar") ||
+      comando.includes("interromper") ||
+      comando.includes("encerrar leitura")
+    ) {
+      leituraAtiva = false;
+      pausadoPeloUsuario = false;
+      interromper("Leitura interrompida. A posição atual foi preservada.");
+      salvar();
+      confirmarPorVoz("Leitura interrompida. A posição atual foi preservada. Para retomar, diga continuar leitura.");
+    } else {
+      $("status").textContent = "Comando não reconhecido. Tente novamente.";
+      confirmarPorVoz("Não entendi o comando. Tente novamente.");
+    }
+  };
+
+  reconhecimento.onerror = evento => {
+    $("status").textContent =
+      evento.error === "not-allowed"
+        ? "Permita o acesso ao microfone nas configurações do navegador."
+        : "Não consegui reconhecer. Tente novamente.";
+  };
+
+  reconhecimento.onend = () => {
+    $("comandoVoz").focus();
+  };
+}
+
+atualizarBiblioteca();
+</script>
+</body>
+</html>
